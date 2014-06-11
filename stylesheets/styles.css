@@ -42,6 +42,14 @@ h1, h2, h3, h4, h5, h6 {
   margin:36px 0 10px;
 }
 
+h1 a {
+  text-decoration: none;
+}
+
+h1 a:hover {
+  text-decoration: underline;
+}
+
 p, ul, ol, table, dl {
   margin:0 0 22px;
 }
