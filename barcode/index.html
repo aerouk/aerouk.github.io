@@ -33,7 +33,7 @@
   button { cursor:pointer; border-radius:10px; padding:10px 14px; font-size:.9rem; font-weight:600; border:1px solid var(--border); background:#fff; }
   button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
   button:disabled{opacity:.5; cursor:not-allowed;}
-  .preview-wrap { display:flex; align-items:center; justify-content:center; min-height:280px; background: repeating-conic-gradient(#fff 0% 25%, #fafafa 0% 50%) 50% / 20px 20px; border:1px dashed var(--border); border-radius:12px; padding:24px; overflow:auto; }
+  .preview-wrap { display:flex; align-items:center; justify-content:center; min-height:240px; background: repeating-conic-gradient(#fff 0% 25%, #fafafa 0% 50%) 50% / 20px 20px; border:1px dashed var(--border); border-radius:12px; padding:24px; overflow:auto; }
   #barcode { max-width:100%; height:auto; }
   .meta { display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; font-size:.82rem; color:var(--muted); }
   .meta code { background:#f3f4f6; padding:2px 6px; border-radius:6px; color:#111827; }
@@ -390,11 +390,24 @@
         + (s !== null ? ' — barcode scaled ×' + (Math.round(s * 100) / 100) + ' to fit.' : ' — barcode stretched to fill exactly.');
     }catch(e){ hint.textContent = e.message; }
   }
-  function loadBarcodeImage(){
+  function loadBarcodeImage(outW, outH, preserveAspectRatio){
     return new Promise((resolve, reject)=>{
       const svg = document.getElementById('barcode');
       const clone = svg.cloneNode(true);
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      // Rasterise the vector at the final output resolution (not the small
+      // on-screen size) so bars and human-readable text stay crisp.
+      // Without this the browser rasterises small then drawImage upscales
+      // the bitmap, which blurs text even at 3x / high DPI.
+      try{
+        const dims = svgDims();
+        if(!clone.getAttribute('viewBox')) clone.setAttribute('viewBox', '0 0 ' + dims.w + ' ' + dims.h);
+        if(outW > 0 && outH > 0){
+          clone.setAttribute('width', String(outW));
+          clone.setAttribute('height', String(outH));
+        }
+        if(preserveAspectRatio) clone.setAttribute('preserveAspectRatio', preserveAspectRatio);
+      }catch{}
       const xml = new XMLSerializer().serializeToString(clone);
       const url = URL.createObjectURL(new Blob([xml], {type:'image/svg+xml;charset=utf-8'}));
       const img = new Image();
@@ -405,33 +418,40 @@
   }
   function svgToCanvas(scale){
     const dims = svgDims();
-    return loadBarcodeImage().then(img=>{
+    const outW = Math.max(1, Math.round(dims.w * scale));
+    const outH = Math.max(1, Math.round(dims.h * scale));
+    return loadBarcodeImage(outW, outH).then(img=>{
       const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(dims.w * scale));
-      c.height = Math.max(1, Math.round(dims.h * scale));
+      c.width = outW;
+      c.height = outH;
       const ctx = c.getContext('2d');
       ctx.fillStyle = bgEl.value; ctx.fillRect(0, 0, c.width, c.height);
-      ctx.drawImage(img, 0, 0, c.width, c.height);
+      // 1:1 blit — no resampling, so disable smoothing for crisp edges.
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, outW, outH);
       return c;
     });
   }
   // Render the barcode centred on a canvas of exactly target.w × target.h.
   // fit === 'stretch' fills exactly (may distort); otherwise aspect is preserved.
+  // The SVG is rasterised at the exact drawn pixel size (dw × dh) and then
+  // blitted 1:1, so neither bars nor text go through a blurry upscale.
   function svgToCanvasFitted(target){
     const dims = svgDims();
-    return loadBarcodeImage().then(img=>{
+    let dw, dh, dx, dy, par;
+    if(target.fit === 'stretch'){ dw = target.w; dh = target.h; dx = 0; dy = 0; par = 'none'; }
+    else{
+      const s = Math.min(target.w / dims.w, target.h / dims.h);
+      dw = Math.max(1, Math.round(dims.w * s)); dh = Math.max(1, Math.round(dims.h * s));
+      dx = Math.round((target.w - dw) / 2); dy = Math.round((target.h - dh) / 2);
+      par = 'xMidYMid meet';
+    }
+    return loadBarcodeImage(dw, dh, par).then(img=>{
       const c = document.createElement('canvas');
       c.width = target.w; c.height = target.h;
       const ctx = c.getContext('2d');
       ctx.fillStyle = bgEl.value; ctx.fillRect(0, 0, c.width, c.height);
-      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-      let dw, dh, dx, dy;
-      if(target.fit === 'stretch'){ dw = target.w; dh = target.h; dx = 0; dy = 0; }
-      else{
-        const s = Math.min(target.w / dims.w, target.h / dims.h);
-        dw = dims.w * s; dh = dims.h * s;
-        dx = (target.w - dw) / 2; dy = (target.h - dh) / 2;
-      }
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, dx, dy, dw, dh);
       return c;
     });
