@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Barcode Generator</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #111827; --muted: #6b7280;
+    --accent: #111827; --border: #e5e7eb; --error: #dc2626; --ok: #059669;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:var(--bg); color:var(--ink); }
+  header { padding: 28px 20px 10px; text-align:center; }
+  header h1 { margin:0; font-size: clamp(1.6rem, 3vw, 2.3rem); letter-spacing:-0.02em; }
+  header p { margin:8px 0 0; color:var(--muted); }
+  main { max-width: 960px; margin: 0 auto; padding: 20px; display:grid; gap:16px; grid-template-columns: 380px 1fr; }
+  @media (max-width: 860px){ main{grid-template-columns:1fr;} }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  label { font-size:.82rem; font-weight:600; display:block; margin:14px 0 6px; }
+  label:first-child{margin-top:0;}
+  input[type=text], select { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-size:1rem; font-family:inherit; background:#fff; }
+  input[type=text]:focus, select:focus { outline:2px solid #111827; border-color:#111827; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+  input[type=range]{width:100%;}
+  input[type=color]{width:100%; height:38px; border:1px solid var(--border); border-radius:10px; background:#fff; padding:2px;}
+  .hint { font-size:.8rem; color:var(--muted); margin-top:6px; line-height:1.4; }
+  .error { display:none; margin-top:10px; background:#fef2f2; border:1px solid #fecaca; color:var(--error); padding:10px 12px; border-radius:10px; font-size:.88rem; }
+  .error.show{display:block;}
+  .ok-msg { font-size:.82rem; color:var(--ok); margin-top:6px; min-height:1.1em; }
+  .btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  button { cursor:pointer; border-radius:10px; padding:10px 14px; font-size:.9rem; font-weight:600; border:1px solid var(--border); background:#fff; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled{opacity:.5; cursor:not-allowed;}
+  .preview-wrap { display:flex; align-items:center; justify-content:center; min-height:280px; background: repeating-conic-gradient(#fff 0% 25%, #fafafa 0% 50%) 50% / 20px 20px; border:1px dashed var(--border); border-radius:12px; padding:24px; overflow:auto; }
+  #barcode { max-width:100%; height:auto; }
+  .meta { display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; font-size:.82rem; color:var(--muted); }
+  .meta code { background:#f3f4f6; padding:2px 6px; border-radius:6px; color:#111827; }
+  .footer { text-align:center; color:var(--muted); font-size:.75rem; padding:10px 20px 24px; }
+  .footer a { color:inherit; }
+  .check { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:.88rem; }
+  kbd { background:#f3f4f6; border:1px solid var(--border); border-bottom-width:2px; padding:1px 6px; border-radius:6px; font-size:.8rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Barcode Generator</h1>
+  <p>Single file. EAN-13, EAN-8, UPC + more. Auto check-digit. Download SVG / PNG / JPG / PDF / EPS.</p>
+</header>
+
+<main>
+  <section class="card" aria-label="Controls">
+    <label for="format">Symbology</label>
+    <select id="format">
+      <option value="EAN13" selected>EAN-13</option>
+      <option value="EAN8">EAN-8</option>
+      <option value="UPC">UPC-A</option>
+      <option value="UPCE">UPC-E</option>
+      <option value="EAN5">EAN-5 (add-on)</option>
+      <option value="EAN2">EAN-2 (add-on)</option>
+      <option value="CODE128">Code 128</option>
+      <option value="CODE39">Code 39</option>
+      <option value="ITF14">ITF-14</option>
+      <option value="MSI">MSI Plessey</option>
+      <option value="pharmacode">Pharmacode</option>
+    </select>
+
+    <label for="value">Value</label>
+    <input id="value" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" value="4006381333931" placeholder="e.g. 4006381333931" />
+    <div class="hint" id="formatHint">EAN-13: 12 digits (auto check-digit) or 13 digits.</div>
+    <div class="ok-msg" id="checkMsg"></div>
+    <div class="error" id="err"></div>
+
+    <div class="btns">
+      <button id="fixBtn" type="button">Auto-fix check digit</button>
+      <button id="sampleBtn" type="button">Sample</button>
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <div>
+        <label for="width">Bar width (<span id="widthV">2</span>)</label>
+        <input id="width" type="range" min="1" max="4" step="0.2" value="2" />
+      </div>
+      <div>
+        <label for="height">Height (<span id="heightV">110</span>)</label>
+        <input id="height" type="range" min="40" max="200" step="5" value="110" />
+      </div>
+    </div>
+
+    <div class="row3">
+      <div>
+        <label for="margin">Margin</label>
+        <input id="margin" type="range" min="0" max="30" step="1" value="10" />
+      </div>
+      <div>
+        <label for="fg">Bars</label>
+        <input id="fg" type="color" value="#000000" />
+      </div>
+      <div>
+        <label for="bg">Background</label>
+        <input id="bg" type="color" value="#ffffff" />
+      </div>
+    </div>
+
+    <label class="check"><input id="displayValue" type="checkbox" checked /> Show human-readable text</label>
+    <label class="check"><input id="flat" type="checkbox" /> Flat (no guard bars extension, EAN/UPC only)</label>
+  </section>
+
+  <section class="card" aria-label="Preview">
+    <div class="preview-wrap">
+      <svg id="barcode" role="img" aria-label="Barcode preview"></svg>
+    </div>
+    <div class="meta">
+      <span>Valid: <code id="validOut">–</code></span>
+      <span>Full code: <code id="fullOut">–</code></span>
+      <span>Check digit: <code id="checkOut">–</code></span>
+    </div>
+    <div class="btns">
+      <button id="dlSvg" class="primary" type="button">Download SVG</button>
+      <button id="dlPng" type="button">Download PNG</button>
+      <button id="dlJpg" type="button">Download JPG</button>
+      <button id="dlPdf" type="button">Download PDF</button>
+      <button id="dlEps" type="button">Download EPS</button>
+      <button id="printBtn" type="button">Print</button>
+      <button id="copyBtn" type="button">Copy value</button>
+    </div>
+    <p class="hint">Tip: type 12 digits for EAN-13 and the check digit is added automatically. Press <kbd>Enter</kbd> to render. PNG / JPG export at 3× for crisp printing. PDF embeds the 3× raster on a label-sized page. EPS is vector.</p>
+  </section>
+</main>
+
+<div class="footer">Barcodes rendered with <a href="https://github.com/lindell/JsBarcode" target="_blank" rel="noopener">JsBarcode</a>.</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.8.0/dist/JsBarcode.all.min.js"></script>
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const valueEl=$('value'), formatEl=$('format'), errEl=$('err'),
+        checkMsg=$('checkMsg'), hintEl=$('formatHint'),
+        widthEl=$('width'), heightEl=$('height'), marginEl=$('margin'),
+        fgEl=$('fg'), bgEl=$('bg'), dispEl=$('displayValue'), flatEl=$('flat');
+
+  const HINTS = {
+    EAN13: 'EAN-13: 12 digits (auto check-digit) or 13 digits.',
+    EAN8: 'EAN-8: 7 digits (auto check-digit) or 8 digits.',
+    UPC: 'UPC-A: 11 digits (auto check-digit) or 12 digits.',
+    UPCE: 'UPC-E: 6, 7, 8, 11 or 12 digits (compressible). Try 04210009.',
+    EAN5: 'EAN-5 add-on: exactly 5 digits.',
+    EAN2: 'EAN-2 add-on: exactly 2 digits.',
+    CODE128: 'Code 128: letters, digits and ASCII.',
+    CODE39: 'Code 39: A–Z, 0–9, - . space $ / + %.',
+    ITF14: 'ITF-14: 13 digits (auto) or 14 digits.',
+    MSI: 'MSI: digits only.',
+    pharmacode: 'Pharmacode: single number 3–131070.'
+  };
+
+  function eanCheck(digits){
+    // digits: array of ints without check digit
+    let sum=0;
+    const len=digits.length;
+    for(let i=0;i<len;i++){
+      const d=digits[i];
+      const fromRight = len - i;
+      // EAN: even position from right (incl. check) ×3. So without check, odd fromRight ×3.
+      sum += (fromRight % 2 === 1) ? d*3 : d;
+    }
+    return (10 - (sum % 10)) % 10;
+  }
+  function clean(s){ return (s||'').trim(); }
+  function digitsOnly(s){ return s.replace(/\D/g,''); }
+
+  function normalise(format, raw){
+    const v = clean(raw);
+    if(['EAN13','EAN8','UPC','ITF14'].includes(format)){
+      const d = digitsOnly(v);
+      if(format==='EAN13'){
+        if(d.length===12) return { render: d + eanCheck(d.split('').map(Number)), full:d + eanCheck(d.split('').map(Number)), auto:true };
+        if(d.length===13) return { render:d, full:d, auto:false };
+        throw new Error('EAN-13 needs 12 or 13 digits (got '+d.length+').');
+      }
+      if(format==='EAN8'){
+        if(d.length===7) return { render: d + eanCheck(d.split('').map(Number)), full:d + eanCheck(d.split('').map(Number)), auto:true };
+        if(d.length===8) return { render:d, full:d, auto:false };
+        throw new Error('EAN-8 needs 7 or 8 digits (got '+d.length+').');
+      }
+      if(format==='UPC'){
+        if(d.length===11) return { render: d + eanCheck(d.split('').map(Number)), full:d + eanCheck(d.split('').map(Number)), auto:true };
+        if(d.length===12) return { render:d, full:d, auto:false };
+        throw new Error('UPC-A needs 11 or 12 digits (got '+d.length+').');
+      }
+      if(format==='ITF14'){
+        if(d.length===13) return { render: d + eanCheck(d.split('').map(Number)), full:d + eanCheck(d.split('').map(Number)), auto:true };
+        if(d.length===14) return { render:d, full:d, auto:false };
+        throw new Error('ITF-14 needs 13 or 14 digits (got '+d.length+').');
+      }
+    }
+    if(format==='EAN5' && !/^\d{5}$/.test(v)) throw new Error('EAN-5 needs exactly 5 digits.');
+    if(format==='EAN2' && !/^\d{2}$/.test(v)) throw new Error('EAN-2 needs exactly 2 digits.');
+    if(format==='pharmacode' && !/^\d+$/.test(v)) throw new Error('Pharmacode needs a number.');
+    if(!v) throw new Error('Enter a value.');
+    return { render:v, full:v, auto:false };
+  }
+
+  function verifyCheck(format, full){
+    if(!['EAN13','EAN8','UPC','ITF14'].includes(format)) return null;
+    const d = digitsOnly(full).split('').map(Number);
+    if(d.length<2) return null;
+    const body = d.slice(0,-1), given = d[d.length-1];
+    const calc = eanCheck(body);
+    return { given, calc, ok: given===calc };
+  }
+
+  function render(){
+    const format = formatEl.value;
+    hintEl.textContent = HINTS[format] || '';
+    $('widthV').textContent = widthEl.value;
+    $('heightV').textContent = heightEl.value;
+    errEl.classList.remove('show');
+    checkMsg.textContent = '';
+    try{
+      if (typeof JsBarcode === 'undefined') throw new Error('Barcode library (JsBarcode CDN) failed to load. Check your connection and reload.');
+      const n = normalise(format, valueEl.value);
+      JsBarcode('#barcode', n.render, {
+        format: format,
+        width: parseFloat(widthEl.value),
+        height: parseInt(heightEl.value,10),
+        displayValue: dispEl.checked,
+        flat: flatEl.checked,
+        lineColor: fgEl.value,
+        background: bgEl.value,
+        margin: parseInt(marginEl.value,10),
+        fontSize: 20,
+        textMargin: 2
+      });
+      const chk = verifyCheck(format, n.full);
+      if(chk){
+        $('validOut').textContent = chk.ok ? 'yes' : 'NO';
+        $('checkOut').textContent = String(chk.calc) + (n.auto ? ' (auto-added)' : '');
+        $('fullOut').textContent = n.full;
+        checkMsg.textContent = n.auto
+          ? 'Check digit '+chk.calc+' added automatically.'
+          : (chk.ok ? 'Check digit valid.' : 'Warning: check digit should be '+chk.calc+'. Use Auto-fix.');
+        checkMsg.style.color = chk.ok || n.auto ? 'var(--ok)' : 'var(--error)';
+      } else {
+        $('validOut').textContent = '–';
+        $('checkOut').textContent = '–';
+        $('fullOut').textContent = n.full;
+      }
+      setButtons(false);
+    } catch(e){
+      errEl.textContent = e.message || String(e);
+      // JsBarcode throws its own errors for bad UPC-E etc.; surface them
+      if(e.message && !/needs|Enter/.test(e.message)){
+        errEl.textContent = 'Invalid for '+formatEl.options[formatEl.selectedIndex].text+': '+e.message;
+      }
+      errEl.classList.add('show');
+      $('validOut').textContent = 'NO';
+      setButtons(true);
+    }
+  }
+  function setButtons(disabled){
+    ['dlSvg','dlPng','dlJpg','dlPdf','dlEps','printBtn'].forEach(id=>$(id).disabled=disabled);
+  }
+
+  $('fixBtn').addEventListener('click', ()=>{
+    try{
+      const n = normalise(formatEl.value, valueEl.value);
+      valueEl.value = n.full;
+      render();
+    }catch(e){ render(); }
+  });
+
+  const SAMPLES = {
+    EAN13:'400638133393', EAN8:'96385074', UPC:'042100005264',
+    UPCE:'04210009', EAN5:'90200', EAN2:'42',
+    CODE128:'HELLO-1234', CODE39:'DEMO-123', ITF14:'12345678901231', MSI:'123456', pharmacode:'1234'
+  };
+  $('sampleBtn').addEventListener('click', ()=>{
+    valueEl.value = SAMPLES[formatEl.value] || '12345678';
+    render();
+  });
+
+  function fileBase(){
+    const b = clean(valueEl.value).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return 'barcode-' + (b || 'code');
+  }
+  function svgDims(){
+    const svg = document.getElementById('barcode');
+    let w = parseFloat(svg.getAttribute('width')), h = parseFloat(svg.getAttribute('height'));
+    if(!(w > 0 && h > 0)){
+      const vb = svg.viewBox && svg.viewBox.baseVal;
+      if(vb && vb.width && vb.height){ w = vb.width; h = vb.height; }
+      else { w = 400; h = 200; }
+    }
+    return { w, h };
+  }
+  function svgToCanvas(scale){
+    return new Promise((resolve, reject)=>{
+      const svg = document.getElementById('barcode');
+      const clone = svg.cloneNode(true);
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const dims = svgDims();
+      const xml = new XMLSerializer().serializeToString(clone);
+      const url = URL.createObjectURL(new Blob([xml], {type:'image/svg+xml;charset=utf-8'}));
+      const img = new Image();
+      img.onload = ()=>{
+        try{
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(dims.w * scale));
+          c.height = Math.max(1, Math.round(dims.h * scale));
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = bgEl.value; ctx.fillRect(0, 0, c.width, c.height);
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          URL.revokeObjectURL(url);
+          resolve(c);
+        }catch(e){ reject(e); }
+      };
+      img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('Could not rasterise barcode.')); };
+      img.src = url;
+    });
+  }
+  function canvasToBlob(canvas, type, quality){
+    return new Promise(res=>canvas.toBlob(res, type, quality));
+  }
+  function rasterBlob(scale, type, quality){
+    return svgToCanvas(scale).then(c=>canvasToBlob(c, type, quality).then(b=>{
+      if(!b) throw new Error('Export failed.');
+      return { blob: b, w: c.width, h: c.height };
+    }));
+  }
+  function fail(e){ errEl.textContent = (e && e.message) || String(e); errEl.classList.add('show'); }
+
+  $('dlSvg').addEventListener('click', ()=>{
+    const svg = document.getElementById('barcode');
+    const blob = new Blob([new XMLSerializer().serializeToString(svg)], {type:'image/svg+xml'});
+    dl(URL.createObjectURL(blob), fileBase()+'.svg');
+  });
+  $('dlPng').addEventListener('click', ()=>{
+    rasterBlob(3, 'image/png').then(r=>dl(URL.createObjectURL(r.blob), fileBase()+'.png'), fail);
+  });
+  $('dlJpg').addEventListener('click', ()=>{
+    rasterBlob(3, 'image/jpeg', 0.92).then(r=>dl(URL.createObjectURL(r.blob), fileBase()+'.jpg'), fail);
+  });
+  $('dlPdf').addEventListener('click', ()=>{
+    rasterBlob(3, 'image/jpeg', 0.92).then(r=>r.blob.arrayBuffer().then(ab=>{
+      const pdf = jpegToPdf(new Uint8Array(ab), r.w, r.h);
+      dl(URL.createObjectURL(new Blob([pdf], {type:'application/pdf'})), fileBase()+'.pdf');
+    }), fail).catch(fail);
+  });
+  // Minimal PDF: single page sized to the barcode image with the JPEG embedded.
+  // No extra library needed.
+  function jpegToPdf(jpeg, imgW, imgH){
+    const pt = px => Math.round(px * 72 / 96 * 100) / 100;
+    const wPt = pt(imgW), hPt = pt(imgH);
+    const enc = new TextEncoder();
+    const head = enc.encode('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+    const o1 = enc.encode('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+    const o2 = enc.encode('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+    const o3 = enc.encode('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+wPt+' '+hPt+'] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n');
+    const o4h = enc.encode('4 0 obj\n<< /Type /XObject /Subtype /Image /Width '+imgW+' /Height '+imgH+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+jpeg.length+' >>\nstream\n');
+    const o4f = enc.encode('\nendstream\nendobj\n');
+    const content = 'q '+wPt+' 0 0 '+hPt+' 0 0 cm /Im0 Do Q';
+    const o5 = enc.encode('5 0 obj\n<< /Length '+content.length+' >>\nstream\n'+content+'\nendstream\nendobj\n');
+    const body = [head, o1, o2, o3, o4h, jpeg, o4f, o5];
+    const off = []; let pos = 0;
+    body.forEach(b=>{ off.push(pos); pos += b.length; });
+    const xrefPos = pos;
+    let xref = 'xref\n0 6\n0000000000 65535 f \n';
+    [off[1], off[2], off[3], off[4], off[7]].forEach(o=>{ xref += String(o).padStart(10, '0')+' 00000 n \n'; });
+    const xrefB = enc.encode(xref);
+    const trailer = enc.encode('trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xrefPos+'\n%%EOF');
+    const out = new Uint8Array(xrefPos + xrefB.length + trailer.length);
+    let p = 0;
+    body.forEach(b=>{ out.set(b, p); p += b.length; });
+    out.set(xrefB, p); p += xrefB.length;
+    out.set(trailer, p);
+    return out;
+  }
+  // Vector EPS straight from the SVG rects + text. No extra library needed.
+  function hexToRgb01(hex){
+    let h = String(hex).replace('#', '');
+    if(h.length === 3) h = h.split('').map(c=>c+c).join('');
+    const n = parseInt(h, 16);
+    return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
+  }
+  function psNum(n){ return String(Math.round(n * 100) / 100); }
+  function psEscape(s){ return String(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)'); }
+  function svgToEps(){
+    const svg = document.getElementById('barcode');
+    const dims = svgDims(), w = dims.w, h = dims.h;
+    const bg = hexToRgb01(bgEl.value), fg = hexToRgb01(fgEl.value);
+    const bgFill = bgEl.value.toLowerCase();
+    const L = [];
+    L.push('%!PS-Adobe-3.0 EPSF-3.0');
+    L.push('%%Creator: Barcode Generator');
+    L.push('%%Title: ' + fileBase());
+    L.push('%%BoundingBox: 0 0 ' + Math.ceil(w) + ' ' + Math.ceil(h));
+    L.push('%%EndComments');
+    L.push(psNum(bg[0])+' '+psNum(bg[1])+' '+psNum(bg[2])+' setrgbcolor');
+    L.push('0 0 '+psNum(w)+' '+psNum(h)+' rectfill');
+    L.push(psNum(fg[0])+' '+psNum(fg[1])+' '+psNum(fg[2])+' setrgbcolor');
+    svg.querySelectorAll('rect').forEach(r=>{
+      const x = parseFloat(r.getAttribute('x')) || 0, y = parseFloat(r.getAttribute('y')) || 0;
+      const rw = parseFloat(r.getAttribute('width')) || 0, rh = parseFloat(r.getAttribute('height')) || 0;
+      if(!(rw > 0 && rh > 0)) return;
+      if((r.getAttribute('fill') || '').toLowerCase() === bgFill) return;
+      L.push(psNum(x)+' '+psNum(h - y - rh)+' '+psNum(rw)+' '+psNum(rh)+' rectfill');
+    });
+    svg.querySelectorAll('text').forEach(t=>{
+      const size = parseFloat(t.getAttribute('font-size')) || 20;
+      const x = parseFloat(t.getAttribute('x')) || 0;
+      const y = parseFloat(t.getAttribute('y')) || 0;
+      L.push('gsave /Helvetica findfont '+psNum(size)+' scalefont setfont');
+      L.push(psNum(x)+' '+psNum(h - y)+' moveto ('+psEscape(t.textContent || '')+') dup stringwidth pop 2 div neg 0 rmoveto show grestore');
+    });
+    L.push('%%EOF');
+    return L.join('\n');
+  }
+  $('dlEps').addEventListener('click', ()=>{
+    try{
+      dl(URL.createObjectURL(new Blob([svgToEps()], {type:'application/postscript'})), fileBase()+'.eps');
+    }catch(e){ fail(e); }
+  });
+  function dl(href, name){
+    const a=document.createElement('a'); a.href=href; a.download=name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(href), 4000);
+  }
+  $('printBtn').addEventListener('click', ()=>{
+    const svg = new XMLSerializer().serializeToString(document.getElementById('barcode'));
+    const w = window.open('', '_blank');
+    w.document.write('<html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'+svg+'<script>onload=()=>{print();}<\/script></body></html>');
+    w.document.close();
+  });
+  $('copyBtn').addEventListener('click', async ()=>{
+    try{ await navigator.clipboard.writeText(valueEl.value); $('copyBtn').textContent='Copied!'; setTimeout(()=>$('copyBtn').textContent='Copy value',1200);}catch{}
+  });
+
+  ['value','format','width','height','margin','fg','bg','displayValue','flat'].forEach(id=>{
+    $(id).addEventListener(id==='value'?'input':'change', render);
+  });
+  valueEl.addEventListener('keydown', e=>{ if(e.key==='Enter') render(); });
+
+  render();
+})();
+</script>
+</body>
+</html>
