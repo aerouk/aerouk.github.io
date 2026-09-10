@@ -37,16 +37,21 @@
   #barcode { max-width:100%; height:auto; }
   .meta { display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; font-size:.82rem; color:var(--muted); }
   .meta code { background:#f3f4f6; padding:2px 6px; border-radius:6px; color:#111827; }
-  .footer { text-align:center; color:var(--muted); font-size:.75rem; padding:10px 20px 24px; }
+    .footer { text-align:center; color:var(--muted); font-size:.75rem; padding:10px 20px 24px; }
   .footer a { color:inherit; }
   .check { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:.88rem; }
+  .exp-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
+  .exp-grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:10px; }
+  input[type=number], select { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-size:1rem; font-family:inherit; background:#fff; }
+  .exp-box { border:1px solid var(--border); border-radius:12px; padding:12px; margin-top:14px; background:#fafafa; }
+  .exp-box > label { margin-top:0; }
   kbd { background:#f3f4f6; border:1px solid var(--border); border-bottom-width:2px; padding:1px 6px; border-radius:6px; font-size:.8rem; }
 </style>
 </head>
 <body>
 <header>
   <h1>Barcode Generator</h1>
-  <p>Single file. EAN-13, EAN-8, UPC + more. Auto check-digit. Download SVG / PNG / JPG / PDF / EPS.</p>
+  <p>Single file. EAN-13, EAN-8, UPC + more. Auto check-digit. Download SVG / PNG / JPG / PDF / AI / EPS.</p>
 </header>
 
 <main>
@@ -77,7 +82,7 @@
       <button id="sampleBtn" type="button">Sample</button>
     </div>
 
-    <div class="row" style="margin-top:6px">
+    <div class="row" style="margin-top:16px">
       <div>
         <label for="width">Bar width (<span id="widthV">2</span>)</label>
         <input id="width" type="range" min="1" max="4" step="0.2" value="2" />
@@ -116,16 +121,63 @@
       <span>Full code: <code id="fullOut">–</code></span>
       <span>Check digit: <code id="checkOut">–</code></span>
     </div>
+    <div class="exp-box">
+      <label for="expMode">Export size / resolution</label>
+      <select id="expMode">
+        <option value="original" selected>Original barcode size (raster exports at 3×)</option>
+        <option value="custom">Custom size — fit barcode inside</option>
+      </select>
+      <div id="expCustom" style="display:none">
+        <div class="exp-grid3">
+          <div>
+            <label for="expW">Width</label>
+            <input id="expW" type="number" min="1" step="any" value="300" />
+          </div>
+          <div>
+            <label for="expH">Height</label>
+            <input id="expH" type="number" min="1" step="any" value="150" />
+          </div>
+          <div>
+            <label for="expUnit">Unit</label>
+            <select id="expUnit">
+              <option value="px" selected>px</option>
+              <option value="mm">mm</option>
+              <option value="in">inch</option>
+            </select>
+          </div>
+        </div>
+        <div class="exp-grid">
+          <div>
+            <label for="expDpi">DPI</label>
+            <select id="expDpi">
+              <option value="72">72</option>
+              <option value="96">96</option>
+              <option value="150">150</option>
+              <option value="200">200</option>
+              <option value="300" selected>300</option>
+              <option value="600">600</option>
+            </select>
+          </div>
+          <div>
+            <label for="expFit">Fit</label>
+            <select id="expFit">
+              <option value="fit" selected>Fit (keep aspect)</option>
+              <option value="stretch">Stretch (exact size)</option>
+            </select>
+          </div>
+        </div>
+        <div class="hint" id="expPxHint"></div>
+      </div>
+    </div>
     <div class="btns">
       <button id="dlSvg" class="primary" type="button">Download SVG</button>
       <button id="dlPng" type="button">Download PNG</button>
       <button id="dlJpg" type="button">Download JPG</button>
       <button id="dlPdf" type="button">Download PDF</button>
+      <button id="dlAi" type="button">Download AI</button>
       <button id="dlEps" type="button">Download EPS</button>
       <button id="printBtn" type="button">Print</button>
-      <button id="copyBtn" type="button">Copy value</button>
     </div>
-    <p class="hint">Tip: type 12 digits for EAN-13 and the check digit is added automatically. Press <kbd>Enter</kbd> to render. PNG / JPG export at 3× for crisp printing. PDF embeds the 3× raster on a label-sized page. EPS is vector.</p>
   </section>
 </main>
 
@@ -259,7 +311,7 @@
     }
   }
   function setButtons(disabled){
-    ['dlSvg','dlPng','dlJpg','dlPdf','dlEps','printBtn'].forEach(id=>$(id).disabled=disabled);
+    ['dlSvg','dlPng','dlJpg','dlPdf','dlAi','dlEps','printBtn'].forEach(id=>$(id).disabled=disabled);
   }
 
   $('fixBtn').addEventListener('click', ()=>{
@@ -294,45 +346,131 @@
     }
     return { w, h };
   }
-  function svgToCanvas(scale){
+  // --- Custom export size ---
+  const expModeEl = $('expMode'), expWEl = $('expW'), expHEl = $('expH'),
+        expUnitEl = $('expUnit'), expDpiEl = $('expDpi'), expFitEl = $('expFit');
+  let expWDirty = false, expHDirty = false;
+  function getExportTarget(){
+    if(!expModeEl || expModeEl.value === 'original') return null;
+    const w = parseFloat(expWEl.value), h = parseFloat(expHEl.value);
+    if(!(w > 0 && h > 0)) throw new Error('Export size needs a width and height greater than 0.');
+    const dpi = parseFloat(expDpiEl.value) || 300;
+    const unit = expUnitEl.value;
+    let pw, ph;
+    if(unit === 'mm'){ pw = w / 25.4 * dpi; ph = h / 25.4 * dpi; }
+    else if(unit === 'in'){ pw = w * dpi; ph = h * dpi; }
+    else { pw = w; ph = h; }
+    pw = Math.max(1, Math.round(pw)); ph = Math.max(1, Math.round(ph));
+    if(pw > 12000 || ph > 12000) throw new Error('Export size too large (max 12000×12000 px).');
+    return { w: pw, h: ph, fit: expFitEl.value, dpi, unit };
+  }
+  // Default the custom size to the on-screen barcode until the user edits it,
+  // so exports match the preview unless deliberately changed.
+  function syncExpToPreview(){
+    if(expWDirty && expHDirty) return;
+    if(expUnitEl.value !== 'px') return;
+    let dims;
+    try{ dims = svgDims(); }catch{ return; }
+    if(!(dims.w > 0 && dims.h > 0)) return;
+    if(!expWDirty) expWEl.value = Math.round(dims.w);
+    if(!expHDirty) expHEl.value = Math.round(dims.h);
+  }
+  function updateExpHint(){
+    if(!expModeEl) return;
+    $('expCustom').style.display = expModeEl.value === 'custom' ? '' : 'none';
+    const hint = $('expPxHint');
+    if(expModeEl.value !== 'custom'){ hint.textContent = ''; return; }
+    try{
+      const t = getExportTarget();
+      const dims = svgDims();
+      const s = t.fit === 'stretch' ? null
+        : Math.min(t.w / dims.w, t.h / dims.h);
+      hint.textContent = 'Output: ' + t.w + ' × ' + t.h + ' px'
+        + (t.unit !== 'px' ? ' (' + expWEl.value + ' × ' + expHEl.value + ' ' + t.unit + ' @ ' + t.dpi + ' DPI)' : ' (@ ' + t.dpi + ' DPI for PDF sizing)')
+        + (s !== null ? ' — barcode scaled ×' + (Math.round(s * 100) / 100) + ' to fit.' : ' — barcode stretched to fill exactly.');
+    }catch(e){ hint.textContent = e.message; }
+  }
+  function loadBarcodeImage(){
     return new Promise((resolve, reject)=>{
       const svg = document.getElementById('barcode');
       const clone = svg.cloneNode(true);
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      const dims = svgDims();
       const xml = new XMLSerializer().serializeToString(clone);
       const url = URL.createObjectURL(new Blob([xml], {type:'image/svg+xml;charset=utf-8'}));
       const img = new Image();
-      img.onload = ()=>{
-        try{
-          const c = document.createElement('canvas');
-          c.width = Math.max(1, Math.round(dims.w * scale));
-          c.height = Math.max(1, Math.round(dims.h * scale));
-          const ctx = c.getContext('2d');
-          ctx.fillStyle = bgEl.value; ctx.fillRect(0, 0, c.width, c.height);
-          ctx.drawImage(img, 0, 0, c.width, c.height);
-          URL.revokeObjectURL(url);
-          resolve(c);
-        }catch(e){ reject(e); }
-      };
+      img.onload = ()=>{ URL.revokeObjectURL(url); resolve(img); };
       img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('Could not rasterise barcode.')); };
       img.src = url;
+    });
+  }
+  function svgToCanvas(scale){
+    const dims = svgDims();
+    return loadBarcodeImage().then(img=>{
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(dims.w * scale));
+      c.height = Math.max(1, Math.round(dims.h * scale));
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = bgEl.value; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      return c;
+    });
+  }
+  // Render the barcode centred on a canvas of exactly target.w × target.h.
+  // fit === 'stretch' fills exactly (may distort); otherwise aspect is preserved.
+  function svgToCanvasFitted(target){
+    const dims = svgDims();
+    return loadBarcodeImage().then(img=>{
+      const c = document.createElement('canvas');
+      c.width = target.w; c.height = target.h;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = bgEl.value; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      let dw, dh, dx, dy;
+      if(target.fit === 'stretch'){ dw = target.w; dh = target.h; dx = 0; dy = 0; }
+      else{
+        const s = Math.min(target.w / dims.w, target.h / dims.h);
+        dw = dims.w * s; dh = dims.h * s;
+        dx = (target.w - dw) / 2; dy = (target.h - dh) / 2;
+      }
+      ctx.drawImage(img, dx, dy, dw, dh);
+      return c;
     });
   }
   function canvasToBlob(canvas, type, quality){
     return new Promise(res=>canvas.toBlob(res, type, quality));
   }
   function rasterBlob(scale, type, quality){
-    return svgToCanvas(scale).then(c=>canvasToBlob(c, type, quality).then(b=>{
+    let task;
+    let target = null;
+    try{ target = getExportTarget(); }catch(e){ return Promise.reject(e); }
+    if(target) task = svgToCanvasFitted(target);
+    else task = svgToCanvas(scale);
+    return task.then(c=>canvasToBlob(c, type, quality).then(b=>{
       if(!b) throw new Error('Export failed.');
-      return { blob: b, w: c.width, h: c.height };
+      return { blob: b, w: c.width, h: c.height, dpi: target ? target.dpi : 96 };
     }));
   }
   function fail(e){ errEl.textContent = (e && e.message) || String(e); errEl.classList.add('show'); }
 
-  $('dlSvg').addEventListener('click', ()=>{
+  function buildExportSvg(){
     const svg = document.getElementById('barcode');
-    const blob = new Blob([new XMLSerializer().serializeToString(svg)], {type:'image/svg+xml'});
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    let target = null;
+    try{ target = getExportTarget(); }catch(e){ fail(e); return null; }
+    if(target){
+      const dims = svgDims();
+      clone.setAttribute('viewBox', '0 0 ' + dims.w + ' ' + dims.h);
+      clone.setAttribute('width', String(target.w));
+      clone.setAttribute('height', String(target.h));
+      clone.setAttribute('preserveAspectRatio', target.fit === 'stretch' ? 'none' : 'xMidYMid meet');
+    }
+    return clone;
+  }
+  $('dlSvg').addEventListener('click', ()=>{
+    const clone = buildExportSvg();
+    if(!clone) return;
+    const blob = new Blob([new XMLSerializer().serializeToString(clone)], {type:'image/svg+xml'});
     dl(URL.createObjectURL(blob), fileBase()+'.svg');
   });
   $('dlPng').addEventListener('click', ()=>{
@@ -343,14 +481,15 @@
   });
   $('dlPdf').addEventListener('click', ()=>{
     rasterBlob(3, 'image/jpeg', 0.92).then(r=>r.blob.arrayBuffer().then(ab=>{
-      const pdf = jpegToPdf(new Uint8Array(ab), r.w, r.h);
+      const pdf = jpegToPdf(new Uint8Array(ab), r.w, r.h, r.dpi || 96);
       dl(URL.createObjectURL(new Blob([pdf], {type:'application/pdf'})), fileBase()+'.pdf');
     }), fail).catch(fail);
   });
   // Minimal PDF: single page sized to the barcode image with the JPEG embedded.
   // No extra library needed.
-  function jpegToPdf(jpeg, imgW, imgH){
-    const pt = px => Math.round(px * 72 / 96 * 100) / 100;
+  function jpegToPdf(jpeg, imgW, imgH, dpi){
+    const d = (dpi && dpi > 0) ? dpi : 96;
+    const pt = px => Math.round(px * 72 / d * 100) / 100;
     const wPt = pt(imgW), hPt = pt(imgH);
     const enc = new TextEncoder();
     const head = enc.encode('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
@@ -376,42 +515,211 @@
     out.set(trailer, p);
     return out;
   }
-  // Vector EPS straight from the SVG rects + text. No extra library needed.
+  // Vector AI (modern .ai is PDF-compatible) built from the SVG rects + text.
+  // Opens in Illustrator as editable vectors. No extra library needed.
   function hexToRgb01(hex){
     let h = String(hex).replace('#', '');
     if(h.length === 3) h = h.split('').map(c=>c+c).join('');
     const n = parseInt(h, 16);
     return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
   }
-  function psNum(n){ return String(Math.round(n * 100) / 100); }
-  function psEscape(s){ return String(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)'); }
-  function svgToEps(){
+  function pdfNum(n){ return String(Math.round(n * 100) / 100); }
+  function pdfEscape(s){ return String(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)'); }
+  // JsBarcode sets rect fills via style="fill:..." (not the fill attribute),
+  // including a full-bleed background rect. Normalise both forms so the
+  // background is skipped instead of being drawn as a black bar.
+  function normColor(c){
+    c = String(c || '').trim().toLowerCase();
+    if(!c) return '';
+    const m = c.match(/^rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/);
+    if(m){
+      const hx = n => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0');
+      return '#' + hx(m[1]) + hx(m[2]) + hx(m[3]);
+    }
+    const hm = c.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);
+    if(hm){
+      let h = hm[1];
+      if(h.length === 3) h = h.split('').map(ch=>ch+ch).join('');
+      return '#' + h;
+    }
+    return c;
+  }
+  function svgRectFill(r){
+    const a = (r.getAttribute('fill') || '').trim();
+    if(a && a.toLowerCase() !== 'none') return normColor(a);
+    const st = r.getAttribute('style') || '';
+    const m = String(st).match(/fill\s*:\s*([^;]+)/i);
+    if(m) return normColor(m[1]);
+    return '';
+  }
+  // JsBarcode nests bars/text in <g transform="translate(tx, ty)"> groups.
+  // Accumulate ancestor offsets so artwork lands at its on-screen position.
+  function svgGroupOffset(el, svg){
+    let tx = 0, ty = 0, n = el.parentNode;
+    while(n && n !== svg){
+      if(n.getAttribute){
+        const m = String(n.getAttribute('transform') || '')
+          .match(/translate\s*\(\s*(-?[\d.]+)(?:\s*[,\s]\s*(-?[\d.]+))?\s*\)/i);
+        if(m){ tx += parseFloat(m[1]) || 0; ty += m[2] !== undefined ? (parseFloat(m[2]) || 0) : 0; }
+      }
+      n = n.parentNode;
+    }
+    return { tx, ty };
+  }
+  let _measureCtx = null;
+  function measureSvgText(str, fontSizePx){
+    try{
+      if(!_measureCtx) _measureCtx = document.createElement('canvas').getContext('2d');
+      _measureCtx.font = fontSizePx + 'px Helvetica, Arial, sans-serif';
+      const w = _measureCtx.measureText(str).width;
+      if(w > 0) return w;
+    }catch{}
+    return str.length * fontSizePx * 0.6;
+  }
+  function svgToAiPdf(){
     const svg = document.getElementById('barcode');
     const dims = svgDims(), w = dims.w, h = dims.h;
+    let target = null;
+    try{ target = getExportTarget(); }catch(e){ throw e; }
+    // Output size + mapping from natural barcode coords to output px.
+    let outW = w, outH = h, sx = 1, sy = 1, ox = 0, oy = 0;
+    if(target){
+      outW = target.w; outH = target.h;
+      if(target.fit === 'stretch'){ sx = outW / w; sy = outH / h; }
+      else { sx = sy = Math.min(outW / w, outH / h); ox = (outW - w * sx) / 2; oy = (outH - h * sy) / 2; }
+    }
+    const dpi = target ? target.dpi : 96;
+    const k = 72 / dpi; // px -> pt
+    const pageW = pdfNum(outW * k), pageH = pdfNum(outH * k);
     const bg = hexToRgb01(bgEl.value), fg = hexToRgb01(fgEl.value);
-    const bgFill = bgEl.value.toLowerCase();
-    const L = [];
-    L.push('%!PS-Adobe-3.0 EPSF-3.0');
-    L.push('%%Creator: Barcode Generator');
-    L.push('%%Title: ' + fileBase());
-    L.push('%%BoundingBox: 0 0 ' + Math.ceil(w) + ' ' + Math.ceil(h));
-    L.push('%%EndComments');
-    L.push(psNum(bg[0])+' '+psNum(bg[1])+' '+psNum(bg[2])+' setrgbcolor');
-    L.push('0 0 '+psNum(w)+' '+psNum(h)+' rectfill');
-    L.push(psNum(fg[0])+' '+psNum(fg[1])+' '+psNum(fg[2])+' setrgbcolor');
+    const bgFill = normColor(bgEl.value);
+    const C = [];
+    const bgC = pdfNum(bg[0])+' '+pdfNum(bg[1])+' '+pdfNum(bg[2])+' rg';
+    const fgC = pdfNum(fg[0])+' '+pdfNum(fg[1])+' '+pdfNum(fg[2])+' rg';
+    C.push(bgC + ' 0 0 ' + pageW + ' ' + pageH + ' re f');
+    C.push(fgC);
     svg.querySelectorAll('rect').forEach(r=>{
       const x = parseFloat(r.getAttribute('x')) || 0, y = parseFloat(r.getAttribute('y')) || 0;
       const rw = parseFloat(r.getAttribute('width')) || 0, rh = parseFloat(r.getAttribute('height')) || 0;
       if(!(rw > 0 && rh > 0)) return;
-      if((r.getAttribute('fill') || '').toLowerCase() === bgFill) return;
-      L.push(psNum(x)+' '+psNum(h - y - rh)+' '+psNum(rw)+' '+psNum(rh)+' rectfill');
+      // Skip the full-bleed background rect (drawn first by JsBarcode at 0,0
+      // covering the whole canvas) and anything filled with the bg colour.
+      const fullBleed = Math.abs(x) < 0.01 && Math.abs(y) < 0.01 &&
+        Math.abs(rw - w) < 1.5 && Math.abs(rh - h) < 1.5;
+      if(fullBleed) return;
+      if(svgRectFill(r) === bgFill) return;
+      const g = svgGroupOffset(r, svg);
+      const gx = x + g.tx, gy = y + g.ty;
+      const X = (ox + gx * sx) * k;
+      const Y = (outH - (oy + gy * sy + rh * sy)) * k;
+      C.push(pdfNum(X)+' '+pdfNum(Y)+' '+pdfNum(rw * sx * k)+' '+pdfNum(rh * sy * k)+' re f');
     });
+    C.push(fgC);
     svg.querySelectorAll('text').forEach(t=>{
+      const str = t.textContent || '';
+      if(!str) return;
       const size = parseFloat(t.getAttribute('font-size')) || 20;
       const x = parseFloat(t.getAttribute('x')) || 0;
       const y = parseFloat(t.getAttribute('y')) || 0;
-      L.push('gsave /Helvetica findfont '+psNum(size)+' scalefont setfont');
-      L.push(psNum(x)+' '+psNum(h - y)+' moveto ('+psEscape(t.textContent || '')+') dup stringwidth pop 2 div neg 0 rmoveto show grestore');
+      const g = svgGroupOffset(t, svg);
+      const gx = x + g.tx, gy = y + g.ty; // SVG y is already the text baseline
+      // Uniform scale for Fit; average for Stretch (avoids broken text).
+      const fsPx = target && target.fit === 'stretch' ? size * (sx + sy) / 2 : size * sx;
+      const natW = measureSvgText(str, size);
+      const scaledWpx = natW * (fsPx / size);
+      const anchor = (t.getAttribute('text-anchor') || 'middle').toLowerCase();
+      const xLeftPx = anchor === 'start' ? ox + gx * sx
+        : anchor === 'end' ? ox + gx * sx - scaledWpx
+        : ox + gx * sx - scaledWpx / 2;
+      const yBasePx = oy + gy * sy;
+      C.push('BT /F1 ' + pdfNum(fsPx * k) + ' Tf ' + fgC + ' 1 0 0 1 ' +
+        pdfNum(xLeftPx * k) + ' ' + pdfNum((outH - yBasePx) * k) +
+        ' Tm (' + pdfEscape(str) + ') Tj ET');
+    });
+    const contentStr = C.join('\n') + '\n';
+    const enc = new TextEncoder();
+    const contentB = enc.encode(contentStr);
+    const title = pdfEscape(fileBase());
+    const head = enc.encode('%PDF-1.5\n%\xE2\xE3\xCF\xD3\n');
+    const o1 = enc.encode('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+    const o2 = enc.encode('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+    const o3 = enc.encode('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pageW + ' ' + pageH + '] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents 4 0 R >>\nendobj\n');
+    const o4h = enc.encode('4 0 obj\n<< /Length ' + contentB.length + ' >>\nstream\n');
+    const o4f = enc.encode('\nendstream\nendobj\n');
+    const o5 = enc.encode('5 0 obj\n<< /Title (' + title + ') /Creator (Barcode Generator) /Producer (Barcode Generator) >>\nendobj\n');
+    const body = [head, o1, o2, o3, o4h, contentB, o4f, o5];
+    const off = []; let pos = 0;
+    body.forEach(b=>{ off.push(pos); pos += b.length; });
+    const xrefPos = pos;
+    let xref = 'xref\n0 6\n0000000000 65535 f \n';
+    [off[1], off[2], off[3], off[4], off[7]].forEach(o=>{ xref += String(o).padStart(10, '0') + ' 00000 n \n'; });
+    const xrefB = enc.encode(xref);
+    const trailer = enc.encode('trailer\n<< /Size 6 /Root 1 0 R /Info 5 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF');
+    const out = new Uint8Array(xrefPos + xrefB.length + trailer.length);
+    let p = 0;
+    body.forEach(b=>{ out.set(b, p); p += b.length; });
+    out.set(xrefB, p); p += xrefB.length;
+    out.set(trailer, p);
+    return out;
+  }
+  $('dlAi').addEventListener('click', ()=>{
+    try{
+      const pdf = svgToAiPdf();
+      dl(URL.createObjectURL(new Blob([pdf], {type:'application/pdf'})), fileBase()+'.ai');
+    }catch(e){ fail(e); }
+  });
+  // Vector EPS straight from the SVG rects + text. No extra library needed.
+  function svgToEps(){
+    const svg = document.getElementById('barcode');
+    const dims = svgDims(), w = dims.w, h = dims.h;
+    let target = null;
+    try{ target = getExportTarget(); }catch(e){ throw e; }
+    // Output size + mapping from natural barcode coords to output coords.
+    let outW = w, outH = h, sx = 1, sy = 1, ox = 0, oy = 0;
+    if(target){
+      outW = target.w; outH = target.h;
+      if(target.fit === 'stretch'){ sx = outW / w; sy = outH / h; }
+      else { sx = sy = Math.min(outW / w, outH / h); ox = (outW - w * sx) / 2; oy = (outH - h * sy) / 2; }
+    }
+    const bg = hexToRgb01(bgEl.value), fg = hexToRgb01(fgEl.value);
+    const bgFill = normColor(bgEl.value);
+    const L = [];
+    L.push('%!PS-Adobe-3.0 EPSF-3.0');
+    L.push('%%Creator: Barcode Generator');
+    L.push('%%Title: ' + fileBase());
+    L.push('%%BoundingBox: 0 0 ' + Math.ceil(outW) + ' ' + Math.ceil(outH));
+    L.push('%%EndComments');
+    L.push(pdfNum(bg[0])+' '+pdfNum(bg[1])+' '+pdfNum(bg[2])+' setrgbcolor');
+    L.push('0 0 '+pdfNum(outW)+' '+pdfNum(outH)+' rectfill');
+    L.push(pdfNum(fg[0])+' '+pdfNum(fg[1])+' '+pdfNum(fg[2])+' setrgbcolor');
+    svg.querySelectorAll('rect').forEach(r=>{
+      const x = parseFloat(r.getAttribute('x')) || 0, y = parseFloat(r.getAttribute('y')) || 0;
+      const rw = parseFloat(r.getAttribute('width')) || 0, rh = parseFloat(r.getAttribute('height')) || 0;
+      if(!(rw > 0 && rh > 0)) return;
+      const fullBleed = Math.abs(x) < 0.01 && Math.abs(y) < 0.01 &&
+        Math.abs(rw - w) < 1.5 && Math.abs(rh - h) < 1.5;
+      if(fullBleed) return;
+      if(svgRectFill(r) === bgFill) return;
+      const g = svgGroupOffset(r, svg);
+      const X = ox + (x + g.tx) * sx;
+      const Y = outH - (oy + (y + g.ty) * sy + rh * sy);
+      L.push(pdfNum(X)+' '+pdfNum(Y)+' '+pdfNum(rw * sx)+' '+pdfNum(rh * sy)+' rectfill');
+    });
+    svg.querySelectorAll('text').forEach(t=>{
+      const str = t.textContent || '';
+      if(!str) return;
+      const size = parseFloat(t.getAttribute('font-size')) || 20;
+      const x = parseFloat(t.getAttribute('x')) || 0;
+      const y = parseFloat(t.getAttribute('y')) || 0;
+      const g = svgGroupOffset(t, svg);
+      const bx = pdfNum(ox + (x + g.tx) * sx), by = pdfNum(outH - (oy + (y + g.ty) * sy));
+      // Uniform scale for Fit; average for Stretch (avoids broken text).
+      const fs = target && target.fit === 'stretch' ? size * (sx + sy) / 2 : size * sx;
+      const anchor = (t.getAttribute('text-anchor') || 'middle').toLowerCase();
+      L.push('gsave /Helvetica findfont '+pdfNum(fs)+' scalefont setfont');
+      if(anchor === 'start') L.push(bx+' '+by+' moveto ('+pdfEscape(str)+') show grestore');
+      else if(anchor === 'end') L.push(bx+' '+by+' moveto ('+pdfEscape(str)+') dup stringwidth pop neg 0 rmoveto show grestore');
+      else L.push(bx+' '+by+' moveto ('+pdfEscape(str)+') dup stringwidth pop 2 div neg 0 rmoveto show grestore');
     });
     L.push('%%EOF');
     return L.join('\n');
@@ -432,15 +740,63 @@
     w.document.write('<html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'+svg+'<script>onload=()=>{print();}<\/script></body></html>');
     w.document.close();
   });
-  $('copyBtn').addEventListener('click', async ()=>{
-    try{ await navigator.clipboard.writeText(valueEl.value); $('copyBtn').textContent='Copied!'; setTimeout(()=>$('copyBtn').textContent='Copy value',1200);}catch{}
-  });
-
   ['value','format','width','height','margin','fg','bg','displayValue','flat'].forEach(id=>{
     $(id).addEventListener(id==='value'?'input':'change', render);
   });
   valueEl.addEventListener('keydown', e=>{ if(e.key==='Enter') render(); });
+  ['expMode','expW','expH','expUnit','expDpi','expFit'].forEach(id=>{
+    $(id).addEventListener(id==='expW'||id==='expH'?'input':'change', ()=>{
+      if(id === 'expW') expWDirty = true;
+      if(id === 'expH') expHDirty = true;
+      updateExpHint();
+    });
+  });
+  expUnitEl.addEventListener('change', ()=>{
+    // Switching back to px without custom edits resumes preview tracking.
+    if(expUnitEl.value === 'px' && !expWDirty && !expHDirty) syncExpToPreview();
+  });
+  // Keep the size + hint in sync once the barcode has natural dimensions.
+  const _origRender = render;
+  render = function(){ _origRender(); try{ syncExpToPreview(); updateExpHint(); }catch{} };
 
+  // --- Persist settings in localStorage (unversioned; missing keys fall back to defaults) ---
+  const STORE_KEY = 'barcode-settings';
+  const STORE_IDS = ['format','value','width','height','margin','fg','bg','displayValue','flat',
+    'expMode','expW','expH','expUnit','expDpi','expFit'];
+  function saveSettings(){
+    try{
+      const o = { _expWDirty: expWDirty ? '1' : '0', _expHDirty: expHDirty ? '1' : '0' };
+      STORE_IDS.forEach(id=>{
+        const el = $(id);
+        if(!el) return;
+        o[id] = (el.type === 'checkbox') ? (el.checked ? '1' : '0') : el.value;
+      });
+      localStorage.setItem(STORE_KEY, JSON.stringify(o));
+    }catch{}
+  }
+  function loadSettings(){
+    try{
+      const raw = localStorage.getItem(STORE_KEY);
+      if(!raw) return;
+      const o = JSON.parse(raw);
+      if(!o || typeof o !== 'object') return;
+      STORE_IDS.forEach(id=>{
+        const el = $(id);
+        if(!el || o[id] === undefined) return;
+        if(el.type === 'checkbox') el.checked = o[id] === '1';
+        else el.value = o[id];
+      });
+      expWDirty = o._expWDirty === '1';
+      expHDirty = o._expHDirty === '1';
+    }catch{}
+  }
+  STORE_IDS.forEach(id=>{
+    const el = $(id);
+    if(!el) return;
+    el.addEventListener(id === 'value' || id === 'expW' || id === 'expH' ? 'input' : 'change', saveSettings);
+  });
+
+  loadSettings();
   render();
 })();
 </script>
